@@ -44,9 +44,17 @@ class GCSStorage:
     def save(self, content: str, project_id: str, sa_name: str, key_id: str) -> str:
         from google.cloud import storage as gcs
 
-        blob_name = _blob_path(project_id, sa_name, key_id)
         client = gcs.Client(credentials=self._credentials)
         bucket = client.bucket(self.bucket_name)
+
+        # Delete all existing keys for this SA so only the latest is kept
+        prefix = f"service-account-keys/{project_id}/{sa_name}/"
+        old_blobs = list(client.list_blobs(self.bucket_name, prefix=prefix))
+        if old_blobs:
+            bucket.delete_blobs(old_blobs)
+            logger.info("Deleted %d old key(s) from GCS prefix %s", len(old_blobs), prefix)
+
+        blob_name = _blob_path(project_id, sa_name, key_id)
         blob = bucket.blob(blob_name)
         blob.upload_from_string(content, content_type="application/json")
         uri = f"gs://{self.bucket_name}/{blob_name}"

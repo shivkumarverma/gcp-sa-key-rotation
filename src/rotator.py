@@ -26,6 +26,7 @@ class RotationRecord:
     expiry_date: Optional[datetime]   # None if key has no expiry
     days_remaining: Optional[int]     # None if key has no expiry
     status: str                       # "Rotated" | "Error" | "Expiring" | "OK"
+    project_name: str = field(default="")
     new_key_id: str = field(default="")
     storage_location: str = field(default="")
     rotation_timestamp: Optional[datetime] = field(default=None)
@@ -126,6 +127,7 @@ def process_project(
     Per-SA errors are caught and recorded — the run continues for remaining accounts.
     """
     records: list[RotationRecord] = []
+    project_name = gcp_client.get_project_display_name(config.credentials, project_id)
 
     try:
         accounts = gcp_client.list_service_accounts(iam_client, project_id)
@@ -170,6 +172,7 @@ def process_project(
                     logger.debug("[SCAN] Key %s for %s is OK (%s days remaining)", key.key_id, sa.email, days)
                 records.append(RotationRecord(
                     project_id=project_id,
+                    project_name=project_name,
                     sa_email=sa.email,
                     old_key_id=key.key_id,
                     expiry_date=key.valid_before_time,
@@ -182,6 +185,7 @@ def process_project(
                     logger.debug("[ROTATE] Key %s for %s is OK, skipping", key.key_id, sa.email)
                     records.append(RotationRecord(
                         project_id=project_id,
+                        project_name=project_name,
                         sa_email=sa.email,
                         old_key_id=key.key_id,
                         expiry_date=key.valid_before_time,
@@ -200,6 +204,7 @@ def process_project(
                     new_key_id, location, key_valid, key_validation_error = rotate_key(iam_client, sa, storage)
                     records.append(RotationRecord(
                         project_id=project_id,
+                        project_name=project_name,
                         sa_email=sa.email,
                         old_key_id=key.key_id,
                         expiry_date=key.valid_before_time,
@@ -216,6 +221,7 @@ def process_project(
                     logger.error("Failed to rotate key %s for %s: %s", key.key_id, sa.email, exc)
                     records.append(RotationRecord(
                         project_id=project_id,
+                        project_name=project_name,
                         sa_email=sa.email,
                         old_key_id=key.key_id,
                         expiry_date=key.valid_before_time,

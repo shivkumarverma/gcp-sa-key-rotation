@@ -30,13 +30,12 @@ _VALIDATION_FILLS = {
 }
 
 _COLUMNS = [
-    ("Project ID",          18),
+    ("Project Name",        28),
+    ("Project ID",          28),
     ("Service Account",     38),
-    ("Key ID",              36),
     ("Expiry Date",         20),
     ("Days Remaining",      16),
     ("Status",              14),
-    ("New Key ID",          36),
     ("Storage Location",    50),
     ("Rotation Timestamp",  22),
     ("Error",               40),
@@ -79,13 +78,12 @@ def build_report(
             validation_str = "Pass" if rec.key_valid else "Fail"
 
         row_values = [
+            rec.project_name or rec.project_id,
             rec.project_id,
             rec.sa_email,
-            rec.old_key_id,
             expiry_str,
             days_str,
             rec.status,
-            rec.new_key_id,
             rec.storage_location,
             rot_ts_str,
             rec.error_message,

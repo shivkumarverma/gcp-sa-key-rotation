@@ -220,7 +220,7 @@ def _key_table_html(records: list[RotationRecord], rotation_enabled: bool) -> st
 
         cells = [
             _html.escape(rec.sa_email),
-            _html.escape(rec.project_id),
+            _html.escape(rec.project_name or rec.project_id),
             _html.escape(expiry_str),
             _html.escape(days_str),
             status_badge,

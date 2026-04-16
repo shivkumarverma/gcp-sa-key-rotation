@@ -38,6 +38,17 @@ def build_iam_client(credentials):
     return discovery.build("iam", "v1", credentials=credentials, cache_discovery=False)
 
 
+def get_project_display_name(credentials, project_id: str) -> str:
+    """Return the human-readable display name for a GCP project, falling back to project_id."""
+    try:
+        rm = discovery.build("cloudresourcemanager", "v3", credentials=credentials, cache_discovery=False)
+        project = rm.projects().get(name=f"projects/{project_id}").execute()
+        return project.get("displayName") or project_id
+    except Exception as exc:
+        logger.debug("Could not fetch display name for %s: %s", project_id, exc)
+        return project_id
+
+
 
 def list_service_accounts(iam_client, project_id: str) -> list[ServiceAccount]:
     """List all service accounts in the given project, handling pagination."""
