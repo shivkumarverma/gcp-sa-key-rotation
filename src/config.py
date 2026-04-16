@@ -98,7 +98,7 @@ def load_config() -> AppConfig:
 
     # Optional — fall back to built-in defaults
     expiry_threshold_days = int(_get_optional("EXPIRY_THRESHOLD_DAYS", "14"))
-    rotation_enabled = _get_optional("ENABLE_ROTATION", "true").lower() == "true"
+    rotation_enabled = _get_optional("ENABLE_ROTATION", "false").lower() == "true"
     storage_backend = _get_optional("STORAGE_BACKEND", "gcs")
     gcs_bucket = _get_optional("GCS_BUCKET", "gcp-bucket-sa-keys-store")
     local_dir = Path(_get_optional("LOCAL_DIR", "./keys"))
