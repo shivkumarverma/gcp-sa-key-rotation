@@ -94,9 +94,7 @@ A Cloud Run Job executes on a schedule to:
 
 ### Architecture Diagram
 
-<!-- TODO: Insert HLD architecture diagram image here -->
-<!-- Suggested filename: docs/images/hld-architecture.png -->
-<!-- The diagram should show: Cloud Scheduler → Cloud Run Job → Secret Manager, GCS, IAM API (target projects), ACS/Gmail -->
+![HLD Architecture](docs/images/hld-architecture.png)
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -147,9 +145,6 @@ A Cloud Run Job executes on a schedule to:
 
 ### Execution Flow
 
-<!-- TODO: Insert LLD execution flow diagram image here -->
-<!-- Suggested filename: docs/images/lld-execution-flow.png -->
-<!-- The diagram should show the 5 phases as swimlanes or a flowchart -->
 
 ```
 Cloud Run Job Triggered (scheduled or manual)
@@ -208,8 +203,6 @@ Cloud Run Job Triggered (scheduled or manual)
 
 GCP supports **external key upload**: you generate the RSA key pair locally, upload only the public key wrapped in an X.509 certificate, and GCP assigns a key ID. The private key never travels over the network to GCP.
 
-<!-- TODO: Insert cryptography flow diagram image here -->
-<!-- Suggested filename: docs/images/crypto-flow.png -->
 
 ```
   Your environment                      GCP IAM
@@ -256,11 +249,9 @@ GCP supports **external key upload**: you generate the RSA key pair locally, upl
 - Full Excel attachment with 10-column report, auto-filter, and row colour-coding
 - Stakeholder-friendly format suitable for governance reviews
 
-<!-- TODO: Insert sample email report screenshot here -->
-<!-- Suggested filename: docs/images/sample-email-report.png -->
+![Sample Email Report](docs/images/sample-email-report.png)
 
-<!-- TODO: Insert sample Excel report screenshot here -->
-<!-- Suggested filename: docs/images/sample-excel-report.png -->
+![Sample Excel Report](docs/images/sample-excel-report.png)
 
 ---
 
@@ -471,8 +462,6 @@ COPY . .
 CMD ["python", "main.py"]
 ```
 
-<!-- TODO: Insert Cloud Run Job console screenshot here -->
-<!-- Suggested filename: docs/images/cloud-run-job-console.png -->
 
 ---
 
@@ -542,8 +531,6 @@ gs://gcp-bucket-sa-keys-store
 └── main-rotator-sa  →  roles/storage.objectAdmin
 ```
 
-<!-- TODO: Insert IAM model diagram image here -->
-<!-- Suggested filename: docs/images/iam-model.png -->
 
 ---
 
@@ -664,8 +651,7 @@ The job sends two reports after each run:
 
 Teams review these reports to identify service accounts with status **Rotated**.
 
-<!-- TODO: Insert sample report email screenshot here -->
-<!-- Suggested filename: docs/images/email-report-screenshot.png -->
+![Sample Email Report](docs/images/sample-email-report.png)
 
 ### Step 2 — Controlled Access to Key Storage
 
@@ -695,9 +681,6 @@ gsutil cp gs://gcp-bucket-sa-keys-store/service-account-keys/YOUR_PROJECT/sa@pro
 
 ### Step 4 — Key Distribution Workflow
 
-<!-- TODO: Insert key distribution workflow diagram here -->
-<!-- Suggested filename: docs/images/key-distribution-workflow.png -->
-<!-- The diagram should show the 4-step handover: Rotation report → DevOps/Ops download from GCS → share to Ops → share to App Team -->
 
 ```
   Automated Job
