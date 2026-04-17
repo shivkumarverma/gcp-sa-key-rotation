@@ -7,9 +7,11 @@
 | Role | Name | Contact |
 |---|---|---|
 | Team Lead | Vignesh Nagachalavelavan | Vignesh.Nagachalavelavan01@movate.com |
-| Engineer | Srigopinath Angamuthu Raja | Srigopinath.AngamuthuRaja@movate.com |
 | Engineer | Shiv Kumar Verma | ShivKumar.Verma@movate.com |
+| Engineer | Srigopinath Angamuthu Raja | Srigopinath.AngamuthuRaja@movate.com |
 | DevOps Engineers | Movate DevOps Team | — |
+
+📄 **Full Documentation (PDF):** [service-account-key-rotation-documentation.pdf](docs/service-account-key-rotation-documenatation.pdf)
 
 ---
 
@@ -21,30 +23,41 @@
 4. [High-Level Architecture (HLD)](#4-high-level-architecture-hld)
 5. [Low-Level Design (LLD)](#5-low-level-design-lld)
 6. [Key Technical Highlights](#6-key-technical-highlights)
-7. [Technology Stack](#7-technology-stack)
-8. [Code Structure](#8-code-structure)
-9. [Configuration](#9-configuration)
-10. [Deployment](#10-deployment)
-11. [IAM & Security Model](#11-iam--security-model)
-12. [Infrastructure Details](#12-infrastructure-details)
-13. [Advantages](#13-advantages)
-14. [Limitations](#14-limitations)
-15. [Use Cases](#15-use-cases)
-16. [Team Scope of Work & Key Distribution](#16-team-scope-of-work--key-distribution)
-17. [Operational Runbook](#17-operational-runbook)
+7. [Key Rotation Policy & Behavior](#7-key-rotation-policy--behavior)
+8. [Technology Stack](#8-technology-stack)
+9. [Code Structure](#9-code-structure)
+10. [Configuration](#10-configuration)
+11. [Deployment](#11-deployment)
+12. [IAM & Security Model](#12-iam--security-model)
+13. [Infrastructure Details](#13-infrastructure-details)
+14. [Advantages](#14-advantages)
+15. [Limitations](#15-limitations)
+16. [Use Cases](#16-use-cases)
+17. [Team Scope of Work & Key Distribution](#17-team-scope-of-work--key-distribution)
+18. [Operational Runbook](#18-operational-runbook)
+19. [Final Outcome](#19-final-outcome)
 
 ---
 
 ## 1. Executive Summary
 
-This solution automates the detection, rotation, validation, and reporting of Google Cloud service account keys across multiple GCP projects. It eliminates manual key rotation risks, expiry-related outages, and security gaps caused by stale or long-lived credentials.
+This solution automates the **detection, rotation, validation, and reporting** of Google Cloud service account keys across multiple GCP projects.
+
+It eliminates:
+- Manual key rotation risks
+- Expiry-related outages
+- Security vulnerabilities due to long-lived credentials
+
+### Key Outcomes
 
 | Outcome | Description |
 |---|---|
 | **Secure** | Private key never leaves your environment; only the public certificate is sent to GCP |
-| **Automated** | Scheduled Cloud Run Job handles the full key lifecycle without human intervention |
-| **Multi-project scalable** | Scans and rotates keys across any number of GCP projects in a single run |
-| **Fully auditable** | Every rotation is logged, stored in GCS, and reported via email with an Excel attachment |
+| **Automated** | Fully scheduled key lifecycle — no human intervention required |
+| **Scalable** | Multi-project support across any number of GCP projects |
+| **Auditable** | Logs, reports, and GCS storage tracking for every rotation event |
+
+> **Zero-downtime rotation** is ensured through overlapping key validity and controlled distribution. The old key remains active in GCP IAM until the application team updates their credentials.
 
 ---
 
@@ -74,8 +87,8 @@ A Cloud Run Job executes on a schedule to:
 
 | Mode | Setting | Behaviour |
 |---|---|---|
-| **Rotate** | `ENABLE_ROTATION=true` | Scans projects and rotates all expiring keys. **Default.** |
-| **Scan Only** | `ENABLE_ROTATION=false` | Audits expiry status and sends a report without making any changes. |
+| **Rotate Mode** | `ENABLE_ROTATION=true` | Full rotation — scans and rotates all expiring keys. **Default.** |
+| **Scan Mode** | `ENABLE_ROTATION=false` | Audit only — reports expiry status without making any changes. |
 
 ---
 
@@ -145,6 +158,11 @@ A Cloud Run Job executes on a schedule to:
 
 ### Execution Flow
 
+```
+Trigger → Bootstrap → Scan → Rotate → Validate → Report
+```
+
+### Detailed Phase Breakdown
 
 ```
 Cloud Run Job Triggered (scheduled or manual)
@@ -203,7 +221,6 @@ Cloud Run Job Triggered (scheduled or manual)
 
 GCP supports **external key upload**: you generate the RSA key pair locally, upload only the public key wrapped in an X.509 certificate, and GCP assigns a key ID. The private key never travels over the network to GCP.
 
-
 ```
   Your environment                      GCP IAM
   ──────────────────────────            ────────────────────────
@@ -218,26 +235,25 @@ GCP supports **external key upload**: you generate the RSA key pair locally, upl
       "private_key_id":   "<key_id returned by GCP>",
       ...
     }
-       └─ stored in GCS  ────────────────────────────────────────▶
-                                          available to authorised consumers
+       └─ stored in GCS  ──────────────▶ available to authorised consumers
 ```
 
 ---
 
 ## 6. Key Technical Highlights
 
-### Secure Key Rotation
+### Security
 
-- Private key is generated offline and **never sent to GCP**
+- Private key is generated **offline** and never sent to GCP
 - Only the X.509 public certificate is uploaded via `upload_public_key()`
 - All sensitive configuration lives in Secret Manager — zero hardcoded credentials
 
-### Two Operating Modes
+### Flexibility
 
 - **Rotate Mode** — active rotation of expiring keys
 - **Scan Mode** — audit-only reporting without any changes
 
-### Resilience
+### Reliability
 
 - Per-service-account error isolation — one failure does not block other SAs
 - Key validation with 3 retries + 10-second delays (accommodates ~30s GCP propagation window)
@@ -255,7 +271,46 @@ GCP supports **external key upload**: you generate the RSA key pair locally, upl
 
 ---
 
-## 7. Technology Stack
+## 7. Key Rotation Policy & Behavior
+
+### Rotation Policy
+
+- Keys are rotated **14 days before expiry** (configurable)
+- Controlled via the `EXPIRY_THRESHOLD_DAYS` secret in Secret Manager
+
+```
+EXPIRY_THRESHOLD_DAYS = 14
+```
+
+### Behavior in GCP IAM
+
+When a key is rotated:
+
+- A **new key is created** in GCP IAM via public cert upload
+- The **existing (old) key remains active** — it is NOT deleted automatically
+
+This ensures:
+- **Zero downtime** — applications continue using the old key until updated
+- **Safe transition** — teams have time to update credentials before the old key expires
+
+### Behavior in GCS Bucket
+
+- Only the **latest rotated key is stored** per service account
+- All previous key files for a SA are **automatically deleted** when a new key is saved
+- Consumers always find exactly one key file per SA path
+
+### Summary
+
+| Aspect | Behavior |
+|---|---|
+| Rotation trigger | 14 days before expiry (configurable) |
+| GCP IAM keys after rotation | Old + New coexist until old key expires |
+| GCS storage | Latest key only — older files auto-deleted |
+| Application downtime | None — old key remains valid during transition |
+
+---
+
+## 8. Technology Stack
 
 | Layer | Technology |
 |---|---|
@@ -272,7 +327,7 @@ GCP supports **external key upload**: you generate the RSA key pair locally, upl
 
 ---
 
-## 8. Code Structure
+## 9. Code Structure
 
 ```
 gcp-sa-key-rotation/
@@ -327,7 +382,7 @@ main.py (entry point)
 
 ---
 
-## 9. Configuration
+## 10. Configuration
 
 ### Bootstrap Environment Variables
 
@@ -361,14 +416,14 @@ All operational configuration is stored in Secret Manager and loaded at runtime 
 
 ---
 
-## 10. Deployment
+## 11. Deployment
 
 ### Prerequisites
 
 1. A GCP project to host the Cloud Run Job (the **host project**)
 2. A service account attached to the Cloud Run Job (the **attached SA**)
 3. A Secret Manager secret containing the **main service account JSON** with access to target projects
-4. IAM permissions on all target projects (see [Section 11](#11-iam--security-model))
+4. IAM permissions on all target projects (see [Section 12](#12-iam--security-model))
 
 ### Step-by-Step Deployment
 
@@ -462,10 +517,9 @@ COPY . .
 CMD ["python", "main.py"]
 ```
 
-
 ---
 
-## 11. IAM & Security Model
+## 12. IAM & Security Model
 
 ### Two-Layer Authentication
 
@@ -531,10 +585,9 @@ gs://gcp-bucket-sa-keys-store
 └── main-rotator-sa  →  roles/storage.objectAdmin
 ```
 
-
 ---
 
-## 12. Infrastructure Details
+## 13. Infrastructure Details
 
 ### GCS Bucket: `gcp-bucket-sa-keys-store`
 
@@ -584,11 +637,11 @@ All secrets reside in the **host project** (`finops-billing-central-prod`):
 
 ---
 
-## 13. Advantages
+## 14. Advantages
 
 ### Security
 
-- **Private key never leaves your environment** — only the X.509 public certificate is uploaded to GCP via `upload_public_key()`
+- **Private key never leaves your environment** — only the X.509 public certificate is uploaded to GCP
 - **Zero hardcoded credentials** — all secrets are in Secret Manager, fetched at runtime
 - **Least-privilege architecture** — the Cloud Run SA can only read secrets; all key operations are performed by the main SA loaded at runtime
 - **Audit trail** — every rotation event is captured in GCS, Cloud Audit Logs, and the emailed Excel report
@@ -603,6 +656,7 @@ All secrets reside in the **host project** (`finops-billing-central-prod`):
 - **Per-SA error isolation** — a failure on one service account does not stop processing of others
 - **Key validation with retry** — confirms the new key works, accommodating GCP's ~30s propagation delay
 - **Dual email delivery** — ACS primary with Gmail SMTP fallback reduces alerting single points of failure
+- **Zero-downtime rotation** — old and new keys coexist in GCP IAM during the transition window
 
 ### Maintainability
 
@@ -612,22 +666,21 @@ All secrets reside in the **host project** (`finops-billing-central-prod`):
 
 ---
 
-## 14. Limitations
+## 15. Limitations
 
 | Limitation | Impact |
 |---|---|
+| **No automatic deletion of old IAM keys** | Old keys remain active in GCP IAM after rotation; manual cleanup is required once applications have been updated |
+| **Manual key distribution** | The tool stores new keys in GCS but does not push them to applications — a team handover process is required (see [Section 17](#17-team-scope-of-work--key-distribution)) |
+| **No automatic application update** | Applications must be manually updated with the new key JSON; restart and validation is a team responsibility |
 | **Only the latest key per SA is evaluated** | If a SA has multiple keys, older ones are ignored and may expire silently |
-| **No automatic deletion of old keys** | Old keys remain valid until their expiry or manual removal; manual cleanup is required |
-| **No application integration** | The tool stores the new JSON in GCS but does not push it to consuming applications — teams must retrieve and apply new keys themselves (see [Section 16](#16-team-scope-of-work--key-distribution)) |
 | **No rollback on validation failure** | If key validation fails, the new key remains in GCP; a manual cleanup or re-run is needed |
-| **X.509 cert validity is 90 days** | The public cert uploaded to GCP has a 90-day window, matching the `openssl` default; plan rotation frequency accordingly |
 | **ACS email rate limits** | Heavy report volumes may trigger ACS 429s; handled by Gmail fallback, but Gmail also has per-day send limits |
-| **Secret Manager access cost** | Each secret version access is a billable API call; monitor costs with many secrets and frequent schedules |
 | **No Terraform / IaC included** | Infrastructure provisioning is manual or scripted — no Terraform modules are shipped in this repository |
 
 ---
 
-## 15. Use Cases
+## 16. Use Cases
 
 - **Enterprise IAM governance** — enforce key rotation policy across all GCP projects from a single automated job
 - **FinOps security automation** — reduce operational overhead of credential management in finance and billing platforms
@@ -636,7 +689,7 @@ All secrets reside in the **host project** (`finops-billing-central-prod`):
 
 ---
 
-## 16. Team Scope of Work & Key Distribution
+## 17. Team Scope of Work & Key Distribution
 
 ### Overview
 
@@ -653,14 +706,14 @@ Teams review these reports to identify service accounts with status **Rotated**.
 
 ![Sample Email Report](docs/images/sample-email-report.png)
 
-### Step 2 — Controlled Access to Key Storage
+### Step 2 — Access Control
 
 Rotated keys are stored in the GCS bucket with access restricted to authorised personnel only:
 
-| Team | Access Level |
+| Team | GCS Access |
 |---|---|
-| DevOps Team | Primary — full access to GCS bucket |
-| Ops Team | Limited members — read access to GCS bucket |
+| DevOps Team | Full — read, write, delete |
+| Ops Team (limited members) | Read only |
 | Application Team | No direct GCS access — receives keys via controlled handover |
 
 ### Step 3 — Key Retrieval from GCS
@@ -679,53 +732,60 @@ gsutil ls gs://gcp-bucket-sa-keys-store/service-account-keys/YOUR_PROJECT/sa@pro
 gsutil cp gs://gcp-bucket-sa-keys-store/service-account-keys/YOUR_PROJECT/sa@project.iam.gserviceaccount.com/KEY_ID.json ./
 ```
 
-### Step 4 — Key Distribution Workflow
-
+### Step 4 — Distribution Flow
 
 ```
-  Automated Job
-       │
-       │  sends report (HTML email + Excel)
-       ▼
-  DevOps / Ops Team
-       │
-       │  identifies rotated SAs from report
-       │  downloads new key JSON from GCS bucket
-       │
-       ▼
-  Ops Team
-       │
-       │  receives key via approved secure channel
-       │
-       ▼
-  Application Team
-       │
-       │  updates application config with new key
-       │  restarts / refreshes dependent services
-       │  validates application functionality
-       ▼
-  Done
+  Report Generated (Email + Excel)
+          │
+          ▼
+  DevOps / Ops identifies rotated keys from report
+          │
+          ▼
+  Downloads new key JSON from GCS bucket
+          │
+          ▼
+  Shares key with Ops Team (secure channel)
+          │
+          ▼
+  Ops Team shares key with Application Team
+          │
+          ▼
+  Application Team updates credentials
+          │
+          ▼
+  Services restarted / refreshed
+          │
+          ▼
+  Validation completed
 ```
 
 ### Step 5 — Application Team Responsibilities
 
 1. Update the application configuration or secret store with the new service account key JSON
 2. Restart or refresh any services that hold the credential in memory
-3. Validate that application functionality and GCP access are restored
+3. Validate that application functionality and GCP access are fully restored
 
-### Security Requirements for Key Handling
+### Security Guidelines
 
 > These rules apply to every member involved in key distribution.
 
 - Access to the GCS bucket is governed strictly by IAM roles — do not grant access outside the approved list
 - Keys must be shared only via **secure, approved channels** (e.g. organisation-approved secrets manager, encrypted transfer)
+- **Never share keys via email attachments, Slack DMs, or any unencrypted medium**
 - **Never store keys locally** beyond the immediate update window
-- **Never share keys over unsecured mediums** (email attachments, Slack DMs, chat tools)
 - Delete locally downloaded key files immediately after updating the application
 
 ---
 
-## 17. Operational Runbook
+## 18. Operational Runbook
+
+### Execute the job manually
+
+```bash
+gcloud run jobs execute gcp-sa-key-rotation \
+  --region=us-central1 \
+  --project=finops-billing-central-prod
+```
 
 ### Check whether the job ran successfully
 
@@ -746,7 +806,7 @@ gcloud logging read \
   --format="value(timestamp, textPayload)"
 ```
 
-### Trigger a scan-only run (no rotation)
+### Run in scan-only mode (no rotation)
 
 Set the `ENABLE_ROTATION` secret value to `false`, then execute the job:
 
@@ -761,7 +821,6 @@ Reset to `true` after the audit is complete.
 ### Add a new project to scan
 
 ```bash
-# Append new project ID to the existing GCP_PROJECTS secret
 NEW_VALUE="$(gcloud secrets versions access latest \
   --secret=GCP_PROJECTS \
   --project=finops-billing-central-prod),new-project-id"
@@ -771,7 +830,7 @@ echo -n "$NEW_VALUE" | gcloud secrets versions add GCP_PROJECTS \
   --project=finops-billing-central-prod
 ```
 
-Then grant the required IAM roles on the new project (see [Section 11](#11-iam--security-model)).
+Then grant the required IAM roles on the new project (see [Section 12](#12-iam--security-model)).
 
 ### Verify a rotated key exists in GCS
 
@@ -785,3 +844,17 @@ gsutil ls gs://gcp-bucket-sa-keys-store/service-account-keys/YOUR_PROJECT/
 |---|---|
 | `0` | All scans and rotations completed successfully |
 | `1` | One or more key rotations failed — check job logs and the emailed Excel report |
+
+---
+
+## 19. Final Outcome
+
+This solution delivers a production-grade, enterprise-ready key rotation system:
+
+| Capability | Detail |
+|---|---|
+| **Secure key lifecycle management** | Private key never leaves the environment; only the public cert reaches GCP |
+| **Fully automated rotation** | Scheduled Cloud Run Job handles scan, rotate, validate, and report end-to-end |
+| **Enterprise-grade reporting** | Colour-coded HTML email + full Excel attachment delivered to stakeholders after every run |
+| **Controlled team-based distribution** | IAM-gated GCS access with a defined DevOps → Ops → App Team handover workflow |
+| **Zero downtime operations** | Old and new keys coexist in GCP IAM — applications remain functional throughout the transition |
