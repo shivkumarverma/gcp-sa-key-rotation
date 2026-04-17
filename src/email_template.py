@@ -218,9 +218,16 @@ def _key_table_html(records: list[RotationRecord], rotation_enabled: bool) -> st
             f'{_html.escape(rec.status)}</span>'
         )
 
+        project_cell = _html.escape(rec.project_name or rec.project_id)
+        if rec.project_name and rec.project_name != rec.project_id:
+            project_cell += (
+                f'<br><span style="font-size:11px;color:#667085;">'
+                f'{_html.escape(rec.project_id)}</span>'
+            )
+
         cells = [
             _html.escape(rec.sa_email),
-            _html.escape(rec.project_name or rec.project_id),
+            project_cell,
             _html.escape(expiry_str),
             _html.escape(days_str),
             status_badge,
