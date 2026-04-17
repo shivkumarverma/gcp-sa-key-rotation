@@ -7,8 +7,9 @@
 | Role | Name | Contact |
 |---|---|---|
 | Team Lead | Vignesh Nagachalavelavan | Vignesh.Nagachalavelavan01@movate.com |
-| Developer | Srigopinath Angamuthu Raja | Srigopinath.AngamuthuRaja@movate.com |
-| Developer | Shiv Kumar Verma | ShivKumar.Verma@movate.com |
+| Engineer | Srigopinath Angamuthu Raja | Srigopinath.AngamuthuRaja@movate.com |
+| Engineer | Shiv Kumar Verma | ShivKumar.Verma@movate.com |
+| DevOps Engineers | Movate DevOps Team | — |
 
 ---
 
