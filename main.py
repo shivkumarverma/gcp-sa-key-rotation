@@ -18,6 +18,11 @@ from pathlib import Path
 
 from src.config import load_config
 from src import gcp_client, rotator
+from src.rotator import (
+    AUTO_ROTATE_THRESHOLD_DAYS,
+    EXPIRING_SOON_THRESHOLD_DAYS,
+    OK_THRESHOLD_DAYS,
+)
 from src.acs_email_client import send_report
 from src.excel_builder import build_report
 from src.email_template import build_email_body
@@ -46,8 +51,11 @@ def main() -> None:
     mode = "ROTATE" if config.rotation_enabled else "SCAN ONLY"
     logger.info("=" * 60)
     logger.info("GCP SA Key Rotation Tool — mode: %s", mode)
-    logger.info("Projects  : %s", ", ".join(config.projects))
-    logger.info("Threshold : %d days", config.expiry_threshold_days)
+    logger.info("Projects     : %s", ", ".join(config.projects))
+    logger.info("OK band           : > %d days", OK_THRESHOLD_DAYS)
+    logger.info("Expiring Soon band: %d–%d days", EXPIRING_SOON_THRESHOLD_DAYS + 1, OK_THRESHOLD_DAYS)
+    logger.info("Critical band     : %d–%d days", AUTO_ROTATE_THRESHOLD_DAYS + 1, EXPIRING_SOON_THRESHOLD_DAYS)
+    logger.info("Very Critical band: <= %d days  (auto-rotates when ENABLE_ROTATION=true)", AUTO_ROTATE_THRESHOLD_DAYS)
     logger.info("=" * 60)
 
     iam_client = gcp_client.build_iam_client(config.credentials)

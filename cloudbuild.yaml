@@ -1,0 +1,59 @@
+# Cloud Build pipeline for gcp-sa-key-rotation
+# Submit with:
+  # gcloud builds submit \
+  #   --config=cloudbuild.yaml \
+  #   --gcs-source-staging-dir=gs://infraforge-gcs/cloudbuild/gcp-sa-key-ratation/logs/source \
+  #   --substitutions=_REGION=us-central1,_REPO=gcp-sa-key-rotation,_JOB_NAME=gcp-sa-key-rotation
+
+substitutions:
+  _REGION: asia-south1
+  _JOB_NAME: gcp-sa-key-rotation
+  _IMAGE: asia-south1-docker.pkg.dev/ul-ce-p-902672-01-prj/infraforge/gcp-sa-key-rotation
+  _SERVICE_ACCOUNT: infra-forge-sa@ul-ce-p-902672-01-prj.iam.gserviceaccount.com
+
+steps:
+  # 1. Build container image from source
+  - id: Build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - ${_IMAGE}:${BUILD_ID}
+      - -t
+      - ${_IMAGE}:latest
+      - .
+
+  # 2. Push image to Artifact Registry
+  - id: Push
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - --all-tags
+      - ${_IMAGE}
+
+  # 3. Deploy as Cloud Run Job
+  - id: Deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - jobs
+      - deploy
+      - ${_JOB_NAME}
+      - --image=${_IMAGE}:${BUILD_ID}
+      - --region=${_REGION}
+      - --service-account=${_SERVICE_ACCOUNT}
+images:
+  - ${_IMAGE}:${BUILD_ID}
+  - ${_IMAGE}:latest
+
+
+# Run the build itself as the infra-forge service account
+serviceAccount: projects/ul-ce-p-902672-01-prj/serviceAccounts/infra-forge-sa@ul-ce-p-902672-01-prj.iam.gserviceaccount.com
+
+# Build logs land in the infraforge-gcs bucket
+logsBucket: gs://infraforge-gcs/cloudbuild/gcp-sa-key-ratation/logs
+
+options:
+  logging: GCS_ONLY
+

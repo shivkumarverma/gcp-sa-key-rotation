@@ -17,6 +17,26 @@ from src.storage import KeyStorage
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Status bands — drives both scan classification and rotate trigger.
+# Tuned for a WEEKLY scheduler so the auto-rotate window never slips between runs.
+#   days > OK_THRESHOLD_DAYS                                          → OK
+#   EXPIRING_SOON_THRESHOLD_DAYS < days <= OK_THRESHOLD_DAYS          → Expiring Soon
+#   AUTO_ROTATE_THRESHOLD_DAYS  < days <= EXPIRING_SOON_THRESHOLD     → Critical
+#   days <= AUTO_ROTATE_THRESHOLD_DAYS                                → Very Critical
+#                                                                       (auto-rotate when ENABLE_ROTATION=true)
+# ---------------------------------------------------------------------------
+OK_THRESHOLD_DAYS = 20
+EXPIRING_SOON_THRESHOLD_DAYS = 15
+AUTO_ROTATE_THRESHOLD_DAYS = 7   # also the upper bound of the "Very Critical" band
+
+STATUS_OK = "OK"
+STATUS_EXPIRING_SOON = "Expiring Soon"
+STATUS_CRITICAL = "Critical"
+STATUS_VERY_CRITICAL = "Very Critical"
+STATUS_ROTATED = "Rotated"
+STATUS_ERROR = "Error"
+
 
 @dataclass
 class RotationRecord:
@@ -25,7 +45,7 @@ class RotationRecord:
     old_key_id: str
     expiry_date: Optional[datetime]   # None if key has no expiry
     days_remaining: Optional[int]     # None if key has no expiry
-    status: str                       # "Rotated" | "Error" | "Expiring" | "OK"
+    status: str                       # OK | Expiring Soon | Critical | Rotated | Error
     project_name: str = field(default="")
     new_key_id: str = field(default="")
     storage_location: str = field(default="")
@@ -35,13 +55,20 @@ class RotationRecord:
     key_validation_error: str = field(default="")
 
 
-def check_key_expiry(key: gcp_client.ServiceAccountKey, threshold_days: int) -> bool:
-    """Return True if the key expires within threshold_days (or is already expired)."""
-    if key.valid_before_time is None:
-        return False
-    now = datetime.now(timezone.utc)
-    days_remaining = (key.valid_before_time - now).days
-    return days_remaining <= threshold_days
+def classify_key(days_remaining: Optional[int]) -> str:
+    """Map a key's days-remaining to its display status band."""
+    if days_remaining is None or days_remaining > OK_THRESHOLD_DAYS:
+        return STATUS_OK
+    if days_remaining > EXPIRING_SOON_THRESHOLD_DAYS:
+        return STATUS_EXPIRING_SOON
+    if days_remaining > AUTO_ROTATE_THRESHOLD_DAYS:
+        return STATUS_CRITICAL
+    return STATUS_VERY_CRITICAL
+
+
+def should_auto_rotate(days_remaining: Optional[int]) -> bool:
+    """Return True if the key is inside the auto-rotate window (<= threshold)."""
+    return days_remaining is not None and days_remaining <= AUTO_ROTATE_THRESHOLD_DAYS
 
 
 def _days_remaining(key: gcp_client.ServiceAccountKey) -> Optional[int]:
@@ -154,22 +181,32 @@ def process_project(
                 key.valid_after_time.date() if key.valid_after_time else "unknown",
             )
 
-        for key in [key]:
-            expiring = check_key_expiry(key, config.expiry_threshold_days)
-            days = _days_remaining(key)
+        days = _days_remaining(key)
+        scan_status = classify_key(days)
+        expiry_str = key.valid_before_time.date() if key.valid_before_time else "N/A"
 
-            if not config.rotation_enabled:
-                # Scan-only mode: classify and record, no GCP writes
-                status = "Expiring" if expiring else "OK"
-                if expiring:
-                    logger.warning(
-                        "[SCAN] Key %s for %s expires %s (%s days remaining)",
-                        key.key_id, sa.email,
-                        key.valid_before_time.date() if key.valid_before_time else "N/A",
-                        days,
-                    )
-                else:
-                    logger.debug("[SCAN] Key %s for %s is OK (%s days remaining)", key.key_id, sa.email, days)
+        log_tag = "[ROTATE]" if config.rotation_enabled else "[SCAN]"
+        if scan_status == STATUS_VERY_CRITICAL:
+            logger.warning("%s Key %s for %s expires %s (%s days) — VERY CRITICAL",
+                           log_tag, key.key_id, sa.email, expiry_str, days)
+        elif scan_status == STATUS_CRITICAL:
+            logger.warning("%s Key %s for %s expires %s (%s days) — CRITICAL",
+                           log_tag, key.key_id, sa.email, expiry_str, days)
+        elif scan_status == STATUS_EXPIRING_SOON:
+            logger.warning("%s Key %s for %s expires %s (%s days) — expiring soon",
+                           log_tag, key.key_id, sa.email, expiry_str, days)
+        else:
+            logger.debug("%s Key %s for %s is OK (%s days remaining)",
+                         log_tag, key.key_id, sa.email, days)
+
+        # Rotate mode + inside auto-rotate window → attempt rotation
+        if config.rotation_enabled and should_auto_rotate(days):
+            logger.warning(
+                "[ROTATE] Key %s for %s has %s days remaining — auto-rotating (threshold %d)",
+                key.key_id, sa.email, days, AUTO_ROTATE_THRESHOLD_DAYS,
+            )
+            try:
+                new_key_id, location, key_valid, key_validation_error = rotate_key(iam_client, sa, storage)
                 records.append(RotationRecord(
                     project_id=project_id,
                     project_name=project_name,
@@ -177,58 +214,36 @@ def process_project(
                     old_key_id=key.key_id,
                     expiry_date=key.valid_before_time,
                     days_remaining=days,
-                    status=status,
+                    status=STATUS_ROTATED,
+                    new_key_id=new_key_id,
+                    storage_location=location,
+                    rotation_timestamp=datetime.now(timezone.utc),
+                    key_valid=key_valid,
+                    key_validation_error=key_validation_error,
                 ))
-            else:
-                # Rotate mode
-                if not expiring:
-                    logger.debug("[ROTATE] Key %s for %s is OK, skipping", key.key_id, sa.email)
-                    records.append(RotationRecord(
-                        project_id=project_id,
-                        project_name=project_name,
-                        sa_email=sa.email,
-                        old_key_id=key.key_id,
-                        expiry_date=key.valid_before_time,
-                        days_remaining=days,
-                        status="OK",
-                    ))
-                    continue
-
-                logger.warning(
-                    "[ROTATE] Key %s for %s expires %s (%s days) — rotating",
-                    key.key_id, sa.email,
-                    key.valid_before_time.date() if key.valid_before_time else "N/A",
-                    days,
-                )
-                try:
-                    new_key_id, location, key_valid, key_validation_error = rotate_key(iam_client, sa, storage)
-                    records.append(RotationRecord(
-                        project_id=project_id,
-                        project_name=project_name,
-                        sa_email=sa.email,
-                        old_key_id=key.key_id,
-                        expiry_date=key.valid_before_time,
-                        days_remaining=days,
-                        status="Rotated",
-                        new_key_id=new_key_id,
-                        storage_location=location,
-                        rotation_timestamp=datetime.now(timezone.utc),
-                        key_valid=key_valid,
-                        key_validation_error=key_validation_error,
-                    ))
-                    logger.info("Rotated key %s → %s stored at %s", key.key_id, new_key_id, location)
-                except Exception as exc:
-                    logger.error("Failed to rotate key %s for %s: %s", key.key_id, sa.email, exc)
-                    records.append(RotationRecord(
-                        project_id=project_id,
-                        project_name=project_name,
-                        sa_email=sa.email,
-                        old_key_id=key.key_id,
-                        expiry_date=key.valid_before_time,
-                        days_remaining=days,
-                        status="Error",
-                        error_message=str(exc),
-                    ))
+                logger.info("Rotated key %s → %s stored at %s", key.key_id, new_key_id, location)
+            except Exception as exc:
+                logger.error("Failed to rotate key %s for %s: %s", key.key_id, sa.email, exc)
+                records.append(RotationRecord(
+                    project_id=project_id,
+                    project_name=project_name,
+                    sa_email=sa.email,
+                    old_key_id=key.key_id,
+                    expiry_date=key.valid_before_time,
+                    days_remaining=days,
+                    status=STATUS_ERROR,
+                    error_message=str(exc),
+                ))
+        else:
+            records.append(RotationRecord(
+                project_id=project_id,
+                project_name=project_name,
+                sa_email=sa.email,
+                old_key_id=key.key_id,
+                expiry_date=key.valid_before_time,
+                days_remaining=days,
+                status=scan_status,
+            ))
 
     return records
 
@@ -247,19 +262,23 @@ def run(
 
     # Summary log
     total = len(all_records)
-    expiring = sum(1 for r in all_records if r.status == "Expiring")
-    rotated = sum(1 for r in all_records if r.status == "Rotated")
-    errors = sum(1 for r in all_records if r.status == "Error")
+    very_critical = sum(1 for r in all_records if r.status == STATUS_VERY_CRITICAL)
+    critical = sum(1 for r in all_records if r.status == STATUS_CRITICAL)
+    expiring_soon = sum(1 for r in all_records if r.status == STATUS_EXPIRING_SOON)
+    rotated = sum(1 for r in all_records if r.status == STATUS_ROTATED)
+    errors = sum(1 for r in all_records if r.status == STATUS_ERROR)
 
     if config.rotation_enabled:
         logger.info(
-            "Run complete [ROTATE mode] — %d keys checked, %d rotated, %d errors",
-            total, rotated, errors,
+            "Run complete [ROTATE mode] — %d checked, %d rotated, %d very critical, %d critical, %d expiring soon, %d errors",
+            total, rotated, very_critical, critical, expiring_soon, errors,
         )
     else:
         logger.info(
-            "Run complete [SCAN mode] — %d keys checked, %d expiring within %d days",
-            total, expiring, config.expiry_threshold_days,
+            "Run complete [SCAN mode] — %d checked, %d very critical (<=%dd), %d critical (<=%dd), %d expiring soon (<=%dd)",
+            total, very_critical, AUTO_ROTATE_THRESHOLD_DAYS,
+            critical, EXPIRING_SOON_THRESHOLD_DAYS,
+            expiring_soon, OK_THRESHOLD_DAYS,
         )
 
     return all_records

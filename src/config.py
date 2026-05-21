@@ -20,7 +20,7 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-_SM_PROJECT = os.environ.get("SECRET_MANAGER_PROJECT_ID", "finops-billing-central-prod").strip()
+_SM_PROJECT = os.environ.get("SECRET_MANAGER_PROJECT_ID", "ul-ce-p-902672-01-prj").strip()
 _SM_VERSION = os.environ.get("SECRET_MANAGER_VERSION", "latest").strip()
 _SA_SECRET_ID = os.environ.get("SERVICE_ACCOUNT_SECRET_ID", "SERVICE_ACCOUNT_SECRET_ID").strip()
 
@@ -75,7 +75,6 @@ def _get_optional(secret_id: str, default: str = "") -> str:
 @dataclass
 class AppConfig:
     projects: list[str]
-    expiry_threshold_days: int
     rotation_enabled: bool
     storage_backend: str
     gcs_bucket: str
@@ -94,13 +93,12 @@ def load_config() -> AppConfig:
     """Fetch all config from Secret Manager using the loaded service account."""
     # Required — will raise if the secret is missing
     projects = [p.strip() for p in get_secret("GCP_PROJECTS").split(",") if p.strip()]
-    email_recipients = [r.strip() for r in get_secret("EMAIL_REPORTS_TO").split(",") if r.strip()]
+    email_recipients = [r.strip() for r in get_secret("EMAIL_SA_REPORTS_TO").split(",") if r.strip()]
 
     # Optional — fall back to built-in defaults
-    expiry_threshold_days = int(_get_optional("EXPIRY_THRESHOLD_DAYS", "14"))
-    rotation_enabled = _get_optional("ENABLE_ROTATION", "true").lower() == "true"
+    rotation_enabled = _get_optional("ENABLE_ROTATION", "false").lower() == "true"
     storage_backend = _get_optional("STORAGE_BACKEND", "gcs")
-    gcs_bucket = _get_optional("GCS_BUCKET", "gcp-bucket-sa-keys-store")
+    gcs_bucket = _get_optional("BUCKET", "infraforge-gcs")
     local_dir = Path(_get_optional("LOCAL_DIR", "./keys"))
     email_subject = _get_optional("EMAIL_SUBJECT", "GCP Service Account Key Report")
 
@@ -115,7 +113,6 @@ def load_config() -> AppConfig:
 
     return AppConfig(
         projects=projects,
-        expiry_threshold_days=expiry_threshold_days,
         rotation_enabled=rotation_enabled,
         storage_backend=storage_backend,
         gcs_bucket=gcs_bucket,
