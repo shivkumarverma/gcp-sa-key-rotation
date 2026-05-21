@@ -147,7 +147,7 @@ def build_report(
         row_idx = header_row + 1 + offset
 
         expiry_str = rec.expiry_date.strftime("%Y-%m-%d %H:%M UTC") if rec.expiry_date else "N/A"
-        days_str = str(rec.days_remaining) if rec.days_remaining is not None else "N/A"
+        days_str = "Default" if rec.days_remaining is not None and rec.days_remaining > 36500 else (str(rec.days_remaining) if rec.days_remaining is not None else "N/A")
         rot_ts_str = rec.rotation_timestamp.strftime("%Y-%m-%d %H:%M UTC") if rec.rotation_timestamp else ""
 
         if rec.key_valid is None:

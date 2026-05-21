@@ -341,7 +341,7 @@ def _key_table_html(records: list[RotationRecord], rotation_enabled: bool) -> st
     for i, rec in enumerate(display_records):
         bg = SOFT if i % 2 == 0 else SURFACE
         expiry_str = rec.expiry_date.strftime("%Y-%m-%d") if rec.expiry_date else "N/A"
-        days_str = str(rec.days_remaining) if rec.days_remaining is not None else "N/A"
+        days_str = "Default" if rec.days_remaining is not None and rec.days_remaining > 36500 else (str(rec.days_remaining) if rec.days_remaining is not None else "N/A")
         fg, sbg, sbr = STATUS_TOKENS.get(rec.status, (INK_700, "#F3F4F6", LINE))
 
         status_badge = (
