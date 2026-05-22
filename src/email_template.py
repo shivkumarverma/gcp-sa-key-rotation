@@ -63,6 +63,7 @@ STATUS_TOKENS = {
     "Expiring Soon":  ("#B45309", "#FFFBEB", "#FCD34D"),
     "Critical":       ("#C2410C", "#FFF7ED", "#FDBA74"),
     "Very Critical":  ("#FFFFFF", "#BE123C", "#9F1239"),
+    "Expired":        ("#FFFFFF", "#450A0A", "#7F1D1D"),
     "Error":          ("#B91C1C", "#FEF2F2", "#FCA5A5"),
 }
 
@@ -130,8 +131,8 @@ def _wrap_html_email(*, subject: str, body_html: str) -> str:
       mso-table-lspace:0pt;mso-table-rspace:0pt;">
       <tr>
         <td align="center" style="padding:36px 16px;">
-          <table role="presentation" width="680" cellspacing="0" cellpadding="0" border="0"
-            style="border-collapse:collapse;max-width:680px;width:100%;
+          <table role="presentation" width="80%" cellspacing="0" cellpadding="0" border="0"
+            style="border-collapse:collapse;max-width:1400px;width:80%;min-width:600px;
             mso-table-lspace:0pt;mso-table-rspace:0pt;">
             <tr>
               <td style="padding:0;">
@@ -224,11 +225,10 @@ def _wrap_html_email(*, subject: str, body_html: str) -> str:
 # ---------------------------------------------------------------------------
 
 def _metrics_html(records: list[RotationRecord], rotation_enabled: bool) -> str:
-    total = len(records)
-    ok = sum(1 for r in records if r.status == "OK")
     expiring_soon = sum(1 for r in records if r.status == "Expiring Soon")
     critical = sum(1 for r in records if r.status == "Critical")
     very_critical = sum(1 for r in records if r.status == "Very Critical")
+    expired = sum(1 for r in records if r.status == "Expired")
     rotated = sum(1 for r in records if r.status == "Rotated")
     errors = sum(1 for r in records if r.status == "Error")
 
@@ -245,25 +245,26 @@ def _metrics_html(records: list[RotationRecord], rotation_enabled: bool) -> str:
     def val_color(hex_color: str) -> str:
         return val_base.replace(INK_900, hex_color)
 
-    val_warn  = val_color("#B45309")
-    val_crit  = val_color("#C2410C")
-    val_vcrit = val_color("#BE123C")
-    val_err   = val_color("#B91C1C")
-    val_ok    = val_color("#047857")
+    val_warn    = val_color("#B45309")
+    val_crit    = val_color("#C2410C")
+    val_vcrit   = val_color("#BE123C")
+    val_expired = val_color("#450A0A")
+    val_err     = val_color("#B91C1C")
+    val_ok      = val_color("#047857")
 
     if rotation_enabled:
         cells = [
-            ("Rotated",       str(rotated),       val_ok    if rotated       else val_base),
-            ("Very Critical", str(very_critical), val_vcrit if very_critical else val_base),
-            ("Critical",      str(critical),      val_crit  if critical      else val_base),
-            ("Errors",        str(errors),        val_err   if errors        else val_base),
+            ("Rotated",       str(rotated),       val_ok      if rotated       else val_base),
+            ("Expired",       str(expired),       val_expired if expired       else val_base),
+            ("Very Critical", str(very_critical), val_vcrit   if very_critical else val_base),
+            ("Errors",        str(errors),        val_err     if errors        else val_base),
         ]
     else:
         cells = [
-            ("Very Critical", str(very_critical), val_vcrit if very_critical else val_base),
-            ("Critical",      str(critical),      val_crit  if critical      else val_base),
-            ("Expiring Soon", str(expiring_soon), val_warn  if expiring_soon else val_base),
-            ("Safe / OK",     f"{ok}/{total}",    val_ok),
+            ("Expired",       str(expired),       val_expired if expired       else val_base),
+            ("Very Critical", str(very_critical), val_vcrit   if very_critical else val_base),
+            ("Critical",      str(critical),      val_crit    if critical      else val_base),
+            ("Expiring Soon", str(expiring_soon), val_warn    if expiring_soon else val_base),
         ]
 
     tds = ""
@@ -296,26 +297,27 @@ def _metrics_html(records: list[RotationRecord], rotation_enabled: bool) -> str:
 def _key_table_html(records: list[RotationRecord], rotation_enabled: bool) -> str:
     """Build an HTML table of up to 5 key records appropriate for the current mode."""
     th = (
-        f"padding:13px 14px;font-size:10.5px;font-weight:700;text-transform:uppercase;"
-        f"letter-spacing:0.11em;color:{INK_500};font-family:{FONT_STACK};"
+        f"padding:14px 18px;font-size:11.5px;font-weight:700;text-transform:uppercase;"
+        f"letter-spacing:0.08em;color:{INK_500};font-family:{FONT_STACK};"
         f"background-color:{SOFT};border-bottom:1px solid {LINE};text-align:left;"
     )
 
     _priority = {
         "Error": 0,
-        "Very Critical": 1,
-        "Critical": 2,
-        "Rotated": 3,
-        "Expiring Soon": 4,
-        "OK": 5,
+        "Expired": 1,
+        "Very Critical": 2,
+        "Critical": 3,
+        "Rotated": 4,
+        "Expiring Soon": 5,
+        "OK": 6,
     }
 
-    notable = ("Rotated", "Error", "Very Critical", "Critical", "Expiring Soon")
+    notable = ("Rotated", "Error", "Expired", "Very Critical", "Critical", "Expiring Soon")
     if rotation_enabled:
         display_records = [r for r in records if r.status in notable]
         headers = ["Service Account", "Project", "Expiry Date", "Days Left", "Status"]
     else:
-        display_records = [r for r in records if r.status in ("Very Critical", "Critical", "Expiring Soon", "Error")] or list(records)
+        display_records = [r for r in records if r.status in ("Expired", "Very Critical", "Critical", "Expiring Soon", "Error")] or list(records)
         headers = ["Service Account", "Project", "Expiry Date", "Days Remaining", "Status"]
 
     display_records = sorted(display_records, key=lambda r: _priority.get(r.status, 99))[:5]
@@ -332,7 +334,7 @@ def _key_table_html(records: list[RotationRecord], rotation_enabled: bool) -> st
     header_row = "".join(f'<th style="{th}">{h}</th>' for h in headers)
 
     td_base = (
-        f"padding:14px 14px;font-size:13px;font-family:{FONT_STACK};"
+        f"padding:16px 18px;font-size:14px;font-family:{FONT_STACK};line-height:1.5;"
         f"border-bottom:1px solid {LINE_2};vertical-align:middle;color:{INK_800};"
         f"font-weight:500;"
     )
@@ -345,15 +347,15 @@ def _key_table_html(records: list[RotationRecord], rotation_enabled: bool) -> st
         fg, sbg, sbr = STATUS_TOKENS.get(rec.status, (INK_700, "#F3F4F6", LINE))
 
         status_badge = (
-            f'<span style="display:inline-block;padding:4px 11px;border-radius:999px;'
-            f'background-color:{sbg};color:{fg};font-weight:700;font-size:11px;'
-            f'border:1px solid {sbr};letter-spacing:0.025em;font-family:{FONT_STACK};'
+            f'<span style="display:inline-block;padding:5px 13px;border-radius:999px;'
+            f'background-color:{sbg};color:{fg};font-weight:700;font-size:12px;'
+            f'border:1px solid {sbr};letter-spacing:0.03em;font-family:{FONT_STACK};'
             f'white-space:nowrap;">{_html.escape(rec.status)}</span>'
         )
 
         sa_cell = (
-            f'<span style="font-family:{MONO_STACK};font-size:12.5px;color:{INK_900};'
-            f'font-weight:500;letter-spacing:-0.005em;">'
+            f'<span style="font-family:{MONO_STACK};font-size:13.5px;color:{INK_900};'
+            f'font-weight:600;letter-spacing:-0.01em;">'
             f'{_html.escape(rec.sa_email)}</span>'
         )
 
@@ -363,18 +365,20 @@ def _key_table_html(records: list[RotationRecord], rotation_enabled: bool) -> st
         )
         if rec.project_name and rec.project_name != rec.project_id:
             project_cell += (
-                f'<br><span style="font-size:11.5px;color:{INK_500};font-family:{MONO_STACK};'
-                f'font-weight:500;">'
+                f'<br><span style="font-size:12.5px;color:{INK_500};font-family:{MONO_STACK};'
+                f'font-weight:500;letter-spacing:-0.01em;">'
                 f'{_html.escape(rec.project_id)}</span>'
             )
 
         days_cell = (
             f'<span style="font-variant-numeric:tabular-nums lining-nums;'
-            f'font-weight:700;color:{INK_900};font-family:{DISPLAY_STACK};">'
+            f'font-weight:800;font-size:15px;color:{INK_900};font-family:{DISPLAY_STACK};'
+            f'letter-spacing:-0.02em;">'
             f'{_html.escape(days_str)}</span>'
         )
         date_cell = (
-            f'<span style="font-variant-numeric:tabular-nums lining-nums;color:{INK_700};">'
+            f'<span style="font-variant-numeric:tabular-nums lining-nums;'
+            f'font-size:13.5px;color:{INK_700};font-family:{MONO_STACK};font-weight:500;">'
             f'{_html.escape(expiry_str)}</span>'
         )
 
@@ -387,7 +391,7 @@ def _key_table_html(records: list[RotationRecord], rotation_enabled: bool) -> st
     if rotation_enabled:
         total = len([r for r in records if r.status in notable])
     else:
-        total = len([r for r in records if r.status in ("Very Critical", "Critical", "Expiring Soon", "Error")]) or len(records)
+        total = len([r for r in records if r.status in ("Expired", "Very Critical", "Critical", "Expiring Soon", "Error")]) or len(records)
     overflow_note = (
         f'<tr><td colspan="{len(headers)}" style="padding:12px 14px;font-size:12px;'
         f'color:{INK_500};font-family:{FONT_STACK};background-color:{SOFT};'
@@ -410,12 +414,12 @@ def _key_table_html(records: list[RotationRecord], rotation_enabled: bool) -> st
           style="padding:18px 20px;background-color:{BRAND_DEEP};
           background-image:linear-gradient(135deg,{BRAND_DEEP} 0%,{BRAND} 60%,{ACCENT} 100%);
           mso-padding-alt:18px 20px;">
-          <span style="font-family:{DISPLAY_STACK};font-size:16px;font-weight:700;
-            color:#FFFFFF;letter-spacing:-0.025em;">
+          <span style="font-family:{DISPLAY_STACK};font-size:18px;font-weight:800;
+            color:#FFFFFF;letter-spacing:-0.03em;">
             {"Key Rotation Results" if rotation_enabled else "Key Expiry Scan Results"}
           </span>
-          <span style="display:block;margin-top:6px;font-size:12.5px;font-weight:500;
-            color:#E0E7FF;font-family:{FONT_STACK};letter-spacing:-0.003em;">
+          <span style="display:block;margin-top:7px;font-size:13.5px;font-weight:500;
+            color:#E0E7FF;font-family:{FONT_STACK};letter-spacing:-0.005em;">
             {"Showing rotated and errored keys" if rotation_enabled else "All USER_MANAGED keys across configured projects"}
           </span>
         </th>

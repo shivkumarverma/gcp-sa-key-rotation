@@ -34,6 +34,7 @@ STATUS_OK = "OK"
 STATUS_EXPIRING_SOON = "Expiring Soon"
 STATUS_CRITICAL = "Critical"
 STATUS_VERY_CRITICAL = "Very Critical"
+STATUS_EXPIRED = "Expired"
 STATUS_ROTATED = "Rotated"
 STATUS_ERROR = "Error"
 
@@ -63,7 +64,9 @@ def classify_key(days_remaining: Optional[int]) -> str:
         return STATUS_EXPIRING_SOON
     if days_remaining > AUTO_ROTATE_THRESHOLD_DAYS:
         return STATUS_CRITICAL
-    return STATUS_VERY_CRITICAL
+    if days_remaining > 0:
+        return STATUS_VERY_CRITICAL
+    return STATUS_EXPIRED
 
 
 def should_auto_rotate(days_remaining: Optional[int]) -> bool:
@@ -148,10 +151,12 @@ def process_project(
     project_id: str,
     config: AppConfig,
     storage: Optional[KeyStorage],
+    skipped_projects: list,
 ) -> list[RotationRecord]:
     """
     Scan all service accounts in a project and either report or rotate expiring keys.
     Per-SA errors are caught and recorded — the run continues for remaining accounts.
+    Project-level access failures are appended to skipped_projects.
     """
     records: list[RotationRecord] = []
     project_name = gcp_client.get_project_display_name(config.credentials, project_id)
@@ -160,6 +165,7 @@ def process_project(
         accounts = gcp_client.list_service_accounts(iam_client, project_id)
     except Exception as exc:
         logger.error("Failed to list service accounts in project %s: %s", project_id, exc)
+        skipped_projects.append(project_id)
         return records
 
     for sa in accounts:
@@ -255,13 +261,15 @@ def run(
 ) -> list[RotationRecord]:
     """Process all configured projects and return all RotationRecords."""
     all_records: list[RotationRecord] = []
+    skipped_projects: list[str] = []
     for project_id in config.projects:
         logger.info("Processing project: %s", project_id)
-        records = process_project(iam_client, project_id, config, storage)
+        records = process_project(iam_client, project_id, config, storage, skipped_projects)
         all_records.extend(records)
 
     # Summary log
     total = len(all_records)
+    expired = sum(1 for r in all_records if r.status == STATUS_EXPIRED)
     very_critical = sum(1 for r in all_records if r.status == STATUS_VERY_CRITICAL)
     critical = sum(1 for r in all_records if r.status == STATUS_CRITICAL)
     expiring_soon = sum(1 for r in all_records if r.status == STATUS_EXPIRING_SOON)
@@ -270,15 +278,21 @@ def run(
 
     if config.rotation_enabled:
         logger.info(
-            "Run complete [ROTATE mode] — %d checked, %d rotated, %d very critical, %d critical, %d expiring soon, %d errors",
-            total, rotated, very_critical, critical, expiring_soon, errors,
+            "Run complete [ROTATE mode] — %d checked, %d rotated, %d expired, %d very critical, %d critical, %d expiring soon, %d errors",
+            total, rotated, expired, very_critical, critical, expiring_soon, errors,
         )
     else:
         logger.info(
-            "Run complete [SCAN mode] — %d checked, %d very critical (<=%dd), %d critical (<=%dd), %d expiring soon (<=%dd)",
-            total, very_critical, AUTO_ROTATE_THRESHOLD_DAYS,
+            "Run complete [SCAN mode] — %d checked, %d expired, %d very critical (<=%dd), %d critical (<=%dd), %d expiring soon (<=%dd)",
+            total, expired, very_critical, AUTO_ROTATE_THRESHOLD_DAYS,
             critical, EXPIRING_SOON_THRESHOLD_DAYS,
             expiring_soon, OK_THRESHOLD_DAYS,
+        )
+
+    if skipped_projects:
+        logger.warning(
+            "Projects skipped (permission denied / access error) [%d]: %s",
+            len(skipped_projects), ", ".join(skipped_projects),
         )
 
     return all_records

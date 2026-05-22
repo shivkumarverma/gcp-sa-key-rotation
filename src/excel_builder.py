@@ -20,14 +20,22 @@ from src.rotator import (
 # ---------------------------------------------------------------------------
 # Palette — light pastel row tints with bold, deeper status text
 # ---------------------------------------------------------------------------
+# badge = status cell fill; font = status/days text on light background;
+# badge_font = override for status cell text when badge is dark.
 _STATUS_STYLES = {
-    "OK":            {"row": "ECFDF5", "badge": "D1FAE5", "font": "047857"},  # mint / emerald
-    "Rotated":       {"row": "ECFDF5", "badge": "D1FAE5", "font": "047857"},
-    "Expiring Soon": {"row": "FEF9C3", "badge": "FEF08A", "font": "A16207"},  # pale lemon / amber
-    "Critical":      {"row": "FFEDD5", "badge": "FED7AA", "font": "C2410C"},  # pale peach / orange
-    "Very Critical": {"row": "FEE2E2", "badge": "FECACA", "font": "B91C1C"},  # pale rose / red
-    "Error":         {"row": "FEE2E2", "badge": "FECACA", "font": "991B1B"},
+    "OK":            {"badge": "D1FAE5", "font": "047857"},
+    "Rotated":       {"badge": "D1FAE5", "font": "047857"},
+    "Expiring Soon": {"badge": "FEF08A", "font": "A16207"},
+    "Critical":      {"badge": "FED7AA", "font": "C2410C"},
+    "Very Critical": {"badge": "FECACA", "font": "B91C1C"},
+    "Expired":       {"badge": "7F1D1D", "font": "7F1D1D", "badge_font": "FFFFFF"},  # dark badge, white badge text
+    "Error":         {"badge": "FECACA", "font": "991B1B"},
 }
+
+_ROW_FILLS = (
+    PatternFill(fill_type="solid", fgColor="FFFFFF"),  # even rows
+    PatternFill(fill_type="solid", fgColor="F8FAFC"),  # odd rows
+)
 
 # Header (darker than the body, as requested)
 _HEADER_FILL = PatternFill(fill_type="solid", fgColor="175CD3")
@@ -45,8 +53,6 @@ _NOTICE_FONT = Font(bold=True, color="92400E", name="Segoe UI Semibold", size=11
 _LEGEND_FILL = PatternFill(fill_type="solid", fgColor="F1F5F9")
 _LEGEND_FONT = Font(italic=True, color="475467", name="Segoe UI", size=10)
 
-# Zebra stripe for rows with no status tint (defensive fallback)
-_ZEBRA_FILL = PatternFill(fill_type="solid", fgColor="F8FAFC")
 
 # Borders
 _BODY_BORDER = Border(bottom=Side(border_style="thin", color="E5E7EB"))
@@ -114,7 +120,8 @@ def build_report(
         f"Status bands  •  OK > {OK_THRESHOLD_DAYS}d   "
         f"•  Expiring Soon {EXPIRING_SOON_THRESHOLD_DAYS + 1}–{OK_THRESHOLD_DAYS}d   "
         f"•  Critical {AUTO_ROTATE_THRESHOLD_DAYS + 1}–{EXPIRING_SOON_THRESHOLD_DAYS}d   "
-        f"•  Very Critical ≤ {AUTO_ROTATE_THRESHOLD_DAYS}d  (auto-rotate)"
+        f"•  Very Critical 1–{AUTO_ROTATE_THRESHOLD_DAYS}d  (auto-rotate)   "
+        f"•  Expired ≤ 0d"
     )
     legend_cell = ws.cell(row=2, column=1, value=legend_text)
     legend_cell.font = _LEGEND_FONT
@@ -169,7 +176,7 @@ def build_report(
         ]
 
         style = _STATUS_STYLES.get(rec.status)
-        row_fill = PatternFill(fill_type="solid", fgColor=style["row"]) if style else _ZEBRA_FILL
+        row_fill = _ROW_FILLS[offset % 2]
 
         col_alignments = {
             1: align_left,
@@ -191,9 +198,9 @@ def build_report(
             cell.border = _BODY_BORDER
             cell.fill = row_fill
 
-            # Status badge — bold coloured text in a slightly darker tint
+            # Status badge — bold coloured text; badge_font used when badge is dark
             if col_idx == _STATUS_COL and style:
-                cell.font = Font(bold=True, name="Segoe UI Semibold", size=10, color=style["font"])
+                cell.font = Font(bold=True, name="Segoe UI Semibold", size=10, color=style.get("badge_font", style["font"]))
                 cell.fill = PatternFill(fill_type="solid", fgColor=style["badge"])
 
             # Days Remaining — bold + coloured to echo the status band
